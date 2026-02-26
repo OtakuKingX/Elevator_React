@@ -1,40 +1,48 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 
+// ========== 型別定義 ==========
+
+// 方向：上、下、待機
 type Direction = 'up' | 'down' | 'idle'
 
+// 乘客完整資訊（用於模擬計算）
 type Passenger = {
-  id: number
-  from: number
-  to: number
-  direction: Direction
-  createdAt: number
-  pickedAt?: number
-  droppedAt?: number
+  id: number          // 乘客編號
+  from: number        // 起始樓層
+  to: number          // 目標樓層
+  direction: Direction // 方向
+  createdAt: number   // 產生時間
+  pickedAt?: number   // 被接上的時間
+  droppedAt?: number  // 抵達目標的時間
 }
 
+// 乘客顯示資訊（用於 UI 渲染）
 type PassengerDisplay = {
   id: number
-  to: number
-  direction: Direction
+  to: number          // 要去哪一樓
+  direction: Direction // 方向
 }
 
+// 電梯狀態
 type Elevator = {
-  id: number
-  floor: number
-  direction: Direction
-  passengers: Passenger[]
+  id: number              // 電梯編號
+  floor: number           // 當前樓層
+  direction: Direction    // 當前方向
+  passengers: Passenger[] // 車內乘客清單
 }
 
+// 模擬統計結果
 type SimulationStats = {
-  totalSeconds: number
-  averageWait: number
-  averageRide: number
-  maxWait: number
+  totalSeconds: number  // 總耗時（秒）
+  averageWait: number   // 平均等待時間
+  averageRide: number   // 平均乘坐時間
+  maxWait: number       // 最長等待時間
 }
 
+// 每秒狀態快照（用於動畫播放）
 type Snapshot = {
-  time: number
+  time: number // 當前秒數
   elevators: Array<{
     id: number
     floor: number
@@ -42,28 +50,35 @@ type Snapshot = {
     passengerCount: number
     passengers: PassengerDisplay[]
   }>
-  waiting: Array<{ floor: number; passengers: PassengerDisplay[] }>
-  pickups: Array<{ elevatorId: number; floor: number; count: number; direction: Direction }>
+  waiting: Array<{ floor: number; passengers: PassengerDisplay[] }> // 每層等候的乘客
+  pickups: Array<{ elevatorId: number; floor: number; count: number; direction: Direction }> // 接人事件
 }
 
+// 模擬結果
 type SimulationResult = {
-  logs: string[]
-  stats: SimulationStats
-  snapshots: Snapshot[]
+  logs: string[]       // 紀錄文字
+  stats: SimulationStats // 統計數據
+  snapshots: Snapshot[]  // 每秒快照
 }
+
+// ========== 設定參數 ==========
 
 const CONFIG = {
-  floors: 10,
-  elevators: 2,
-  capacity: 5,
+  floors: 10,      // 樓層數
+  elevators: 2,    // 電梯數量
+  capacity: 5,     // 每部電梯容量
 }
 
+// UI 版面配置參數
 const LAYOUT = {
-  floorLabelWidth: 60,
-  shaftWidth: 80,
-  carWidth: 72,
+  floorLabelWidth: 60, // 樓層標籤寬度
+  shaftWidth: 80,      // 電梯井寬度
+  carWidth: 72,        // 電梯車廂寬度
 }
 
+// ========== 工具函數 ==========
+
+// 建立偽隨機數產生器（可重現結果）
 const createRng = (seed: number) => {
   let state = seed >>> 0
   return () => {
@@ -72,20 +87,29 @@ const createRng = (seed: number) => {
   }
 }
 
+// 產生隨機樓層（1 ~ floors）
 const randomFloor = (rng: () => number, floors: number) =>
   1 + Math.floor(rng() * floors)
 
+// 格式化樓層顯示
 const formatFloor = (floor: number) => `F${floor}`
 
+// ========== 模擬主函數 ==========
+
 const simulate = (seed: number, spawnCount: number): SimulationResult => {
-  const rng = createRng(seed)
-  const logs: string[] = []
-  const snapshots: Snapshot[] = []
+  const rng = createRng(seed)  // 隨機數產生器
+  const logs: string[] = []    // 紀錄陣列
+  const snapshots: Snapshot[] = [] // 每秒快照
+  
+  // 每層樓的等候隊列（索引 0 不使用，1~10 對應樓層）
   const waitingByFloor: Passenger[][] = Array.from(
     { length: CONFIG.floors + 1 },
     () => [],
   )
-  const passengers: Passenger[] = []
+  
+  const passengers: Passenger[] = [] // 所有乘客紀錄
+  
+  // 初始化電梯（都在 1 樓待機）
   const elevators: Elevator[] = Array.from({ length: CONFIG.elevators }, (_, i) => ({
     id: i + 1,
     floor: 1,
@@ -93,13 +117,15 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
     passengers: [],
   }))
 
-  let time = 0
-  let createdCount = 0
-  let completedCount = 0
+  let time = 0              // 當前秒數
+  let createdCount = 0      // 已產生乘客數
+  let completedCount = 0    // 已完成運送數
 
+  // 檢查是否還有人在等候
   const hasWaiting = () =>
     waitingByFloor.some((floorQueue, index) => index > 0 && floorQueue.length > 0)
 
+  // 找出離當前樓層最近的等候樓層（相同距離時選較低樓層）
   const nearestWaitingFloor = (currentFloor: number) => {
     let bestFloor: number | null = null
     let bestDistance = Number.POSITIVE_INFINITY
@@ -114,12 +140,14 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
     return bestFloor
   }
 
+  // 計算從 from 到 to 應該往哪個方向
   const directionTo = (from: number, to: number): Direction => {
     if (to > from) return 'up'
     if (to < from) return 'down'
     return 'idle'
   }
 
+  // 記錄當前狀態快照（用於動畫播放）
   const pushSnapshot = (snapshotTime: number, pickups: Snapshot['pickups']) => {
     snapshots.push({
       time: snapshotTime,
@@ -142,15 +170,18 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
     })
   }
 
-  pushSnapshot(0, [])
+  pushSnapshot(0, []) // 記錄初始狀態
 
+  // ========== 主迴圈：模擬每一秒 ==========
   while (completedCount < spawnCount) {
     logs.push(`t=${time}s`)
-    const pickupEvents: Snapshot['pickups'] = []
+    const pickupEvents: Snapshot['pickups'] = [] // 這一秒的接人事件
 
+    // 1. 每秒產生一位乘客
     if (createdCount < spawnCount) {
       const from = randomFloor(rng, CONFIG.floors)
       let to = randomFloor(rng, CONFIG.floors)
+      // 確保起點終點不同
       while (to === from) {
         to = randomFloor(rng, CONFIG.floors)
       }
@@ -163,14 +194,16 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
         createdAt: time,
       }
       passengers.push(passenger)
-      waitingByFloor[from].push(passenger)
+      waitingByFloor[from].push(passenger) // 加入該樓層等候隊列
       createdCount += 1
       logs.push(
         `  +P${passenger.id} ${formatFloor(from)}→${formatFloor(to)} (${direction})`,
       )
     }
 
+    // 2. 處理每部電梯
     for (const elevator of elevators) {
+      // 2.1 先放人（到達目標樓層的乘客）
       const dropped = elevator.passengers.filter(
         (passenger) => passenger.to === elevator.floor,
       )
@@ -179,27 +212,30 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
           (passenger) => passenger.to !== elevator.floor,
         )
         for (const passenger of dropped) {
-          passenger.droppedAt = time
-          completedCount += 1
+          passenger.droppedAt = time // 記錄抵達時間
+          completedCount += 1        // 完成人數 +1
         }
       }
 
+      // 2.2 再接人（同向優先、不超載）
       const waitingHere = waitingByFloor[elevator.floor]
       const picked: Passenger[] = []
       if (waitingHere.length > 0 && elevator.passengers.length < CONFIG.capacity) {
         let pickupDirection = elevator.direction
+        // 如果電梯空車，採用第一位等候者的方向
         if (elevator.passengers.length === 0 && pickupDirection === 'idle') {
           pickupDirection = waitingHere[0].direction
         }
         let remaining = CONFIG.capacity - elevator.passengers.length
         const stillWaiting: Passenger[] = []
+        // 遍歷等候者，只接同向的（或電梯無方向時全接）
         for (const passenger of waitingHere) {
           if (remaining > 0 && (pickupDirection === 'idle' || passenger.direction === pickupDirection)) {
-            passenger.pickedAt = time
+            passenger.pickedAt = time // 記錄上車時間
             picked.push(passenger)
             remaining -= 1
           } else {
-            stillWaiting.push(passenger)
+            stillWaiting.push(passenger) // 方向不符或已滿載，留在等候
           }
         }
         waitingByFloor[elevator.floor] = stillWaiting
@@ -208,6 +244,7 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
           if (pickupDirection !== 'idle') {
             elevator.direction = pickupDirection
           }
+          // 記錄接人事件
           pickupEvents.push({
             elevatorId: elevator.id,
             floor: elevator.floor,
@@ -217,14 +254,17 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
         }
       }
 
+      // 2.3 如果有放人或接人，這秒停站處理（耗時 1 秒）
       if (dropped.length > 0 || picked.length > 0) {
         logs.push(
           `  E${elevator.id} 停站 ${formatFloor(elevator.floor)} 放${dropped.length} 接${picked.length} 乘客(${elevator.passengers.length}/${CONFIG.capacity})`,
         )
-        continue
+        continue // 停站不移動，進入下一部電梯
       }
 
+      // 2.4 決定電梯下一步移動方向
       if (elevator.passengers.length > 0) {
+        // 有乘客：前往最近的目標樓層
         const targets = elevator.passengers.map((passenger) => passenger.to)
         let nearestTarget = targets[0]
         let nearestDistance = Math.abs(nearestTarget - elevator.floor)
@@ -237,6 +277,7 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
         }
         elevator.direction = directionTo(elevator.floor, nearestTarget)
       } else if (hasWaiting()) {
+        // 空車：前往最近的等候樓層
         const targetFloor = nearestWaitingFloor(elevator.floor)
         if (targetFloor !== null) {
           elevator.direction = directionTo(elevator.floor, targetFloor)
@@ -244,23 +285,26 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
           elevator.direction = 'idle'
         }
       } else {
+        // 無乘客也無人等候：待機
         elevator.direction = 'idle'
       }
 
+      // 2.5 執行移動（耗時 1 秒）
       if (elevator.direction === 'idle') {
         logs.push(`  E${elevator.id} 待命 @ ${formatFloor(elevator.floor)}`)
       } else {
-        elevator.floor += elevator.direction === 'up' ? 1 : -1
+        elevator.floor += elevator.direction === 'up' ? 1 : -1 // 移動 1 層
         logs.push(
           `  E${elevator.id} 移動 ${elevator.direction === 'up' ? '↑' : '↓'} 到 ${formatFloor(elevator.floor)}`,
         )
       }
     }
 
-    time += 1
-    pushSnapshot(time, pickupEvents)
+    time += 1 // 時間前進 1 秒
+    pushSnapshot(time, pickupEvents) // 記錄這一秒的狀態
   }
 
+  // ========== 計算統計數據 ==========
   const waits = passengers.map(
     (passenger) => (passenger.pickedAt ?? passenger.createdAt) - passenger.createdAt,
   )
@@ -283,23 +327,29 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
   }
 }
 
+// ========== React 組件 ==========
+
 function App() {
-  const [spawnCount, setSpawnCount] = useState(40)
-  // const [seed] = useState(42)
-  const [result, setResult] = useState(() => simulate(42, 40))
-  const [tick, setTick] = useState(0)
-  const [playing, setPlaying] = useState(false)
-  const stats = useMemo(() => result.stats, [result])
-  const snapshot = result.snapshots[Math.min(tick, result.snapshots.length - 1)]
+  // 狀態管理
+  const [spawnCount, setSpawnCount] = useState(40)  // 要模擬的人數
+  const [result, setResult] = useState(() => simulate(42, 40)) // 模擬結果
+  const [tick, setTick] = useState(0)      // 當前播放的時間點
+  const [playing, setPlaying] = useState(false) // 是否正在播放
+  
+  const stats = useMemo(() => result.stats, [result]) // 統計數據
+  const snapshot = result.snapshots[Math.min(tick, result.snapshots.length - 1)] // 當前快照
   const prevSnapshot =
-    tick > 0 ? result.snapshots[Math.min(tick - 1, result.snapshots.length - 1)] : undefined
+    tick > 0 ? result.snapshots[Math.min(tick - 1, result.snapshots.length - 1)] : undefined // 前一秒快照
+  
+  // 樓層列表（從高到低）
   const floorsDescending = useMemo(
     () => Array.from({ length: CONFIG.floors }, (_, index) => CONFIG.floors - index),
     [],
   )
 
+  // 渲染小人圖示
   const renderPeople = (passengers: PassengerDisplay[], variant: 'waiting' | 'car') => {
-    const display = passengers.slice(0, CONFIG.capacity)
+    const display = passengers.slice(0, CONFIG.capacity) // 最多顯示容量數
     const people = display.map((p) => (
       <div key={`${variant}-${p.id}`} className={`person ${p.direction}`}>
         <div className="person-target">{p.to}</div>
@@ -315,15 +365,17 @@ function App() {
     )
   }
 
+  // 取得方向符號
   const getDirSign = (dir: Direction) => {
     if (dir === 'up') return '▲'
     if (dir === 'down') return '▼'
     return '●'
   }
 
+  // 計算電梯車廂的絕對定位樣式
   const getElevatorStyle = (elevator: Snapshot['elevators'][number], idx: number) => {
     const floorHeight = 100 / CONFIG.floors
-    const topPercent = (CONFIG.floors - elevator.floor) * floorHeight
+    const topPercent = (CONFIG.floors - elevator.floor) * floorHeight // 10樓在頂部 0%, 1樓在底部 90%
     const leftPx =
       LAYOUT.floorLabelWidth + idx * LAYOUT.shaftWidth + (LAYOUT.shaftWidth - LAYOUT.carWidth) / 2
     return {
@@ -333,30 +385,36 @@ function App() {
     }
   }
 
+  // 電梯 tooltip 顯示
   const getElevatorTooltip = (elevator: Snapshot['elevators'][number]) => {
     return `E${elevator.id}: ${elevator.passengerCount}/${CONFIG.capacity}`
   }
 
+  // 重新模擬
   const handleRun = () => {
-    const newSeed = Math.floor(Math.random() * 100000)
+    const newSeed = Math.floor(Math.random() * 100000) // 隨機種子
     const simResult = simulate(newSeed, spawnCount)
     setResult(simResult)
     setTick(0)
     setPlaying(false)
   }
 
+  // 切換播放/暫停
   const togglePlay = () => {
     setPlaying((value) => !value)
   }
 
+  // 下一秒
   const stepForward = () => {
     setTick((value) => Math.min(value + 1, result.snapshots.length - 1))
   }
 
+  // 上一秒
   const stepBackward = () => {
     setTick((value) => Math.max(value - 1, 0))
   }
 
+  // 自動播放效果（每 600ms 跳一秒）
   useEffect(() => {
     if (!playing) return undefined
     const handle = window.setInterval(() => {
