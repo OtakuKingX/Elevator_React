@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
-import { CONFIG, LAYOUT } from '../config'
-import type { Direction, PassengerDisplay, Snapshot } from '../types'
+import { LAYOUT } from '../config'
+import type { Direction, PassengerDisplay, SimConfig, Snapshot } from '../types'
 
 type Props = {
   snapshot: Snapshot | undefined
   prevSnapshot: Snapshot | undefined
+  config: SimConfig
 }
 
 const getDirSign = (dir: Direction) => {
@@ -13,9 +14,9 @@ const getDirSign = (dir: Direction) => {
   return '●'
 }
 
-const getElevatorStyle = (elevator: Snapshot['elevators'][number], idx: number) => {
-  const floorHeight = 100 / CONFIG.floors
-  const topPercent = (CONFIG.floors - elevator.floor) * floorHeight
+const getElevatorStyle = (elevator: Snapshot['elevators'][number], idx: number, floors: number) => {
+  const floorHeight = 100 / floors
+  const topPercent = (floors - elevator.floor) * floorHeight
   const leftPx =
     LAYOUT.floorLabelWidth + idx * LAYOUT.shaftWidth + (LAYOUT.shaftWidth - LAYOUT.carWidth) / 2
   return {
@@ -25,8 +26,8 @@ const getElevatorStyle = (elevator: Snapshot['elevators'][number], idx: number) 
   }
 }
 
-const renderPeople = (passengers: PassengerDisplay[], variant: 'waiting' | 'car') => {
-  const display = passengers.slice(0, CONFIG.capacity)
+const renderPeople = (passengers: PassengerDisplay[], variant: 'waiting' | 'car', capacity: number) => {
+  const display = passengers.slice(0, capacity)
   const people = display.map((p) => (
     <div key={`${variant}-${p.id}`} className={`person ${p.direction}`}>
       <div className="person-target">{p.to}</div>
@@ -42,10 +43,14 @@ const renderPeople = (passengers: PassengerDisplay[], variant: 'waiting' | 'car'
   )
 }
 
-// 樓層列表（從高到低）
-const floorsDescending = Array.from({ length: CONFIG.floors }, (_, i) => CONFIG.floors - i)
+export function Building({ snapshot, prevSnapshot, config }: Props) {
+  const { floors, elevators: elevatorCount, capacity } = config
 
-export function Building({ snapshot, prevSnapshot }: Props) {
+  // 樓層列表（從高到低）
+  const floorsDescending = useMemo(
+    () => Array.from({ length: floors }, (_, i) => floors - i),
+    [floors],
+  )
   // 每層等候乘客 Map（避免 O(n) 查詢）
   const waitingMap = useMemo(() => {
     const map = new Map<number, PassengerDisplay[]>()
@@ -61,7 +66,7 @@ export function Building({ snapshot, prevSnapshot }: Props) {
     <div className="building">
       <div className="shaft-header">
         <div className="floor-label-header"></div>
-        {Array.from({ length: CONFIG.elevators }, (_, index) => (
+        {Array.from({ length: elevatorCount }, (_, index) => (
           <div key={`h-${index + 1}`} className="shaft-label">E{index + 1}</div>
         ))}
         <div className="waiting-label">等候區</div>
@@ -74,11 +79,11 @@ export function Building({ snapshot, prevSnapshot }: Props) {
               <div className="floor-info">
                 <span className="floor-name">{floor}F</span>
               </div>
-              {Array.from({ length: CONFIG.elevators }, (_, index) => (
+              {Array.from({ length: elevatorCount }, (_, index) => (
                 <div key={`s-${floor}-${index}`} className="shaft" />
               ))}
               <div className="waiting-area">
-                {renderPeople(waitingPassengers ?? [], 'waiting')}
+                {renderPeople(waitingPassengers ?? [], 'waiting', capacity)}
               </div>
             </div>
           )
@@ -97,15 +102,15 @@ export function Building({ snapshot, prevSnapshot }: Props) {
             <div
               key={`car-${elevator.id}`}
               className={`elevator-car ${status}`}
-              style={getElevatorStyle(elevator, idx)}
-              title={`E${elevator.id}: ${elevator.passengerCount}/${CONFIG.capacity}`}
+              style={getElevatorStyle(elevator, idx, floors)}
+              title={`E${elevator.id}: ${elevator.passengerCount}/${capacity}`}
             >
               <div className="car-body">
                 <div className={`door door-left ${status === 'PROCESSING' ? 'open' : ''}`} />
                 <div className={`door door-right ${status === 'PROCESSING' ? 'open' : ''}`} />
                 <div className="car-content">
                   <div className="direction">{getDirSign(elevator.direction)}</div>
-                  <div className="load">{elevator.passengerCount}/{CONFIG.capacity}</div>
+                    <div className="load">{elevator.passengerCount}/{capacity}</div>
                 </div>
               </div>
             </div>

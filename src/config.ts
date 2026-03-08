@@ -1,5 +1,7 @@
-// 模擬設定參數
-export const CONFIG = {
+import type { SimConfig } from './types'
+
+// 預設模擬設定
+export const DEFAULT_CONFIG: SimConfig = {
   floors: 10,      // 樓層數
   elevators: 2,    // 電梯數量
   capacity: 5,     // 每部電梯容量

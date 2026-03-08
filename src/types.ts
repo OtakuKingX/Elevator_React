@@ -49,6 +49,13 @@ export type Snapshot = {
   pickups: Array<{ elevatorId: number; floor: number; count: number; direction: Direction }> // 接人事件
 }
 
+// 模擬設定（使用者可調整）
+export type SimConfig = {
+  floors: number      // 樓層數
+  elevators: number   // 電梯數量
+  capacity: number    // 每部電梯容量
+}
+
 // 模擬結果
 export type SimulationResult = {
   logs: string[]       // 紀錄文字

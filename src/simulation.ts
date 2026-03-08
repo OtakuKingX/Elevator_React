@@ -1,5 +1,4 @@
-import { CONFIG } from './config'
-import type { Direction, Elevator, Passenger, SimulationResult, Snapshot } from './types'
+import type { Direction, Elevator, Passenger, SimConfig, SimulationResult, Snapshot } from './types'
 
 // 建立偽隨機數產生器（可重現結果）
 const createRng = (seed: number) => {
@@ -24,21 +23,22 @@ const directionTo = (from: number, to: number): Direction => {
   return 'idle'
 }
 
-export const simulate = (seed: number, spawnCount: number): SimulationResult => {
+export const simulate = (seed: number, spawnCount: number, config: SimConfig): SimulationResult => {
+  const { floors, elevators: elevatorCount, capacity } = config
   const rng = createRng(seed)
   const logs: string[] = []
   const snapshots: Snapshot[] = []
 
-  // 每層樓的等候隊列（索引 0 不使用，1~10 對應樓層）
+  // 每層樓的等候隊列（索引 0 不使用，1~floors 對應樓層）
   const waitingByFloor: Passenger[][] = Array.from(
-    { length: CONFIG.floors + 1 },
+    { length: floors + 1 },
     () => [],
   )
 
   const passengers: Passenger[] = []
 
   // 初始化電梯（都在 1 樓待機）
-  const elevators: Elevator[] = Array.from({ length: CONFIG.elevators }, (_, i) => ({
+  const elevators: Elevator[] = Array.from({ length: elevatorCount }, (_, i) => ({
     id: i + 1,
     floor: 1,
     direction: 'idle' as Direction,
@@ -57,7 +57,7 @@ export const simulate = (seed: number, spawnCount: number): SimulationResult => 
   const nearestWaitingFloor = (currentFloor: number, exclude?: Set<number>) => {
     let bestFloor: number | null = null
     let bestDistance = Number.POSITIVE_INFINITY
-    for (let floor = 1; floor <= CONFIG.floors; floor += 1) {
+    for (let floor = 1; floor <= floors; floor += 1) {
       if (waitingByFloor[floor].length === 0) continue
       if (exclude?.has(floor)) continue
       const distance = Math.abs(floor - currentFloor)
@@ -80,7 +80,7 @@ export const simulate = (seed: number, spawnCount: number): SimulationResult => 
         passengerCount: elevator.passengers.length,
         passengers: elevator.passengers.map((p) => ({ id: p.id, to: p.to, direction: p.direction })),
       })),
-      waiting: Array.from({ length: CONFIG.floors }, (_, index) => {
+      waiting: Array.from({ length: floors }, (_, index) => {
         const floor = index + 1
         const queue = waitingByFloor[floor]
         return {
@@ -101,10 +101,10 @@ export const simulate = (seed: number, spawnCount: number): SimulationResult => 
 
     // 1. 每秒產生一位乘客
     if (createdCount < spawnCount) {
-      const from = randomFloor(rng, CONFIG.floors)
-      let to = randomFloor(rng, CONFIG.floors)
+      const from = randomFloor(rng, floors)
+      let to = randomFloor(rng, floors)
       while (to === from) {
-        to = randomFloor(rng, CONFIG.floors)
+        to = randomFloor(rng, floors)
       }
       const direction: Direction = to > from ? 'up' : 'down'
       const passenger: Passenger = {
@@ -142,12 +142,12 @@ export const simulate = (seed: number, spawnCount: number): SimulationResult => 
       // 2.2 再接人（同向優先、不超載）
       const waitingHere = waitingByFloor[elevator.floor]
       const picked: Passenger[] = []
-      if (waitingHere.length > 0 && elevator.passengers.length < CONFIG.capacity) {
+      if (waitingHere.length > 0 && elevator.passengers.length < capacity) {
         let pickupDirection = elevator.direction
         if (elevator.passengers.length === 0 && pickupDirection === 'idle') {
           pickupDirection = waitingHere[0].direction
         }
-        let remaining = CONFIG.capacity - elevator.passengers.length
+        let remaining = capacity - elevator.passengers.length
         const stillWaiting: Passenger[] = []
         for (const passenger of waitingHere) {
           if (remaining > 0 && (pickupDirection === 'idle' || passenger.direction === pickupDirection)) {
@@ -176,7 +176,7 @@ export const simulate = (seed: number, spawnCount: number): SimulationResult => 
       // 2.3 如果有放人或接人，這秒停站處理
       if (dropped.length > 0 || picked.length > 0) {
         logs.push(
-          `  E${elevator.id} 停站 ${formatFloor(elevator.floor)} 放${dropped.length} 接${picked.length} 乘客(${elevator.passengers.length}/${CONFIG.capacity})`,
+          `  E${elevator.id} 停站 ${formatFloor(elevator.floor)} 放${dropped.length} 接${picked.length} 乘客(${elevator.passengers.length}/${capacity})`,
         )
         continue
       }

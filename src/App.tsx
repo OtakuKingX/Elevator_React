@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { DEFAULT_CONFIG } from './config'
+import type { SimConfig } from './types'
 import { simulate } from './simulation'
 import { Building } from './components/Building'
 import { PlaybackControls } from './components/PlaybackControls'
@@ -7,11 +9,29 @@ import { SimLog } from './components/SimLog'
 import { StatsCard } from './components/StatsCard'
 
 function App() {
+  const [floors, setFloors] = useState(DEFAULT_CONFIG.floors)
+  const [elevatorCount, setElevatorCount] = useState(DEFAULT_CONFIG.elevators)
+  const [capacity, setCapacity] = useState(DEFAULT_CONFIG.capacity)
   const [spawnCount, setSpawnCount] = useState(40)
-  const [result, setResult] = useState(() => simulate(42, 40))
+
+  const config: SimConfig = useMemo(
+    () => ({ floors, elevators: elevatorCount, capacity }),
+    [floors, elevatorCount, capacity],
+  )
+
+  const [seed, setSeed] = useState(42)
+  const result = useMemo(() => simulate(seed, spawnCount, config), [seed, spawnCount, config])
   const [tick, setTick] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [speed, setSpeed] = useState(1)
+
+  // config 或 spawnCount 變更時重置播放狀態（render 時比對前值，避免 effect 內同步 setState）
+  const [prevResult, setPrevResult] = useState(result)
+  if (prevResult !== result) {
+    setPrevResult(result)
+    setTick(0)
+    setPlaying(false)
+  }
 
   const stats = useMemo(() => result.stats, [result])
   const snapshot = result.snapshots[Math.min(tick, result.snapshots.length - 1)]
@@ -28,8 +48,7 @@ function App() {
   }, [snapshot, spawnCount])
 
   const handleRun = () => {
-    const newSeed = Math.floor(Math.random() * 100000)
-    setResult(simulate(newSeed, spawnCount))
+    setSeed(Math.floor(Math.random() * 100000))
     setTick(0)
     setPlaying(false)
   }
@@ -83,7 +102,7 @@ function App() {
           <p className="eyebrow">Elevator Control Lab</p>
           <h1>電梯管理系統模擬</h1>
           <p className="subtitle">
-            10層樓、2部電梯、每秒一位乘客。採用「最近等待 + 同向優先」策略，
+            {floors}層樓、{elevatorCount}部電梯、每秒一位乘客。採用「最近等待 + 同向優先」策略，
             目標是在固定規則下盡量縮短等待時間。
           </p>
         </div>
@@ -93,6 +112,36 @@ function App() {
       <section className="layout">
         <div className="controls-section">
           <div className="controls">
+            <label>
+              樓層數
+              <input
+                type="number"
+                min={3}
+                max={30}
+                value={floors}
+                onChange={(event) => setFloors(Math.max(3, Math.min(30, Number(event.target.value))))}
+              />
+            </label>
+            <label>
+              電梯數
+              <input
+                type="number"
+                min={1}
+                max={6}
+                value={elevatorCount}
+                onChange={(event) => setElevatorCount(Math.max(1, Math.min(6, Number(event.target.value))))}
+              />
+            </label>
+            <label>
+              電梯容量
+              <input
+                type="number"
+                min={2}
+                max={20}
+                value={capacity}
+                onChange={(event) => setCapacity(Math.max(2, Math.min(20, Number(event.target.value))))}
+              />
+            </label>
             <label>
               隨機人數
               <input
@@ -121,7 +170,7 @@ function App() {
             onSpeedChange={setSpeed}
             onTickChange={setTick}
           />
-          <Building snapshot={snapshot} prevSnapshot={prevSnapshot} />
+          <Building snapshot={snapshot} prevSnapshot={prevSnapshot} config={config} />
         </div>
       </section>
 
