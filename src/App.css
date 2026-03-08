@@ -100,6 +100,44 @@
   cursor: pointer;
 }
 
+.speed-control {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+}
+
+.speed-btn {
+  border-radius: 8px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  background: #0f252b;
+  border: 1px solid var(--panel-border);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.speed-btn.active {
+  background: var(--accent);
+  color: #0b1b1f;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.speed-btn:hover:not(.active) {
+  background: #1a3a44;
+}
+
+.progress-badge {
+  background: rgba(65, 200, 170, 0.15);
+  color: var(--accent);
+  padding: 0.2rem 0.6rem;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .timeline {
   width: 100%;
   margin-bottom: 1rem;

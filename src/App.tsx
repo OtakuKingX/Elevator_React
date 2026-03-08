@@ -126,11 +126,12 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
     waitingByFloor.some((floorQueue, index) => index > 0 && floorQueue.length > 0)
 
   // 找出離當前樓層最近的等候樓層（相同距離時選較低樓層）
-  const nearestWaitingFloor = (currentFloor: number) => {
+  const nearestWaitingFloor = (currentFloor: number, exclude?: Set<number>) => {
     let bestFloor: number | null = null
     let bestDistance = Number.POSITIVE_INFINITY
     for (let floor = 1; floor <= CONFIG.floors; floor += 1) {
       if (waitingByFloor[floor].length === 0) continue
+      if (exclude?.has(floor)) continue
       const distance = Math.abs(floor - currentFloor)
       if (distance < bestDistance || (distance === bestDistance && floor < (bestFloor ?? floor))) {
         bestDistance = distance
@@ -201,7 +202,8 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
       )
     }
 
-    // 2. 處理每部電梯
+    // 2. 處理每部電梯（使用 targetedFloors 避免多台電梯前往同一樓層）
+    const targetedFloors = new Set<number>()
     for (const elevator of elevators) {
       // 2.1 先放人（到達目標樓層的乘客）
       const dropped = elevator.passengers.filter(
@@ -262,25 +264,37 @@ const simulate = (seed: number, spawnCount: number): SimulationResult => {
         continue // 停站不移動，進入下一部電梯
       }
 
-      // 2.4 決定電梯下一步移動方向
+      // 2.4 決定電梯下一步移動方向（SCAN 策略：優先同方向行駛，減少折返）
       if (elevator.passengers.length > 0) {
-        // 有乘客：前往最近的目標樓層
         const targets = elevator.passengers.map((passenger) => passenger.to)
-        let nearestTarget = targets[0]
-        let nearestDistance = Math.abs(nearestTarget - elevator.floor)
-        for (const target of targets.slice(1)) {
-          const distance = Math.abs(target - elevator.floor)
-          if (distance < nearestDistance) {
-            nearestDistance = distance
-            nearestTarget = target
+        // 優先繼續同方向行駛（SCAN 策略）
+        const sameDir = elevator.direction === 'up'
+          ? targets.filter((t) => t > elevator.floor)
+          : elevator.direction === 'down'
+            ? targets.filter((t) => t < elevator.floor)
+            : []
+        if (sameDir.length > 0) {
+          const nearest = elevator.direction === 'up' ? Math.min(...sameDir) : Math.max(...sameDir)
+          elevator.direction = directionTo(elevator.floor, nearest)
+        } else {
+          // 同方向無目標，找最近的（自然反轉）
+          let nearestTarget = targets[0]
+          let nearestDistance = Math.abs(nearestTarget - elevator.floor)
+          for (const target of targets.slice(1)) {
+            const distance = Math.abs(target - elevator.floor)
+            if (distance < nearestDistance) {
+              nearestDistance = distance
+              nearestTarget = target
+            }
           }
+          elevator.direction = directionTo(elevator.floor, nearestTarget)
         }
-        elevator.direction = directionTo(elevator.floor, nearestTarget)
       } else if (hasWaiting()) {
-        // 空車：前往最近的等候樓層
-        const targetFloor = nearestWaitingFloor(elevator.floor)
+        // 空車：前往最近的等候樓層（避開其他電梯已分配的目標）
+        const targetFloor = nearestWaitingFloor(elevator.floor, targetedFloors)
         if (targetFloor !== null) {
           elevator.direction = directionTo(elevator.floor, targetFloor)
+          targetedFloors.add(targetFloor)
         } else {
           elevator.direction = 'idle'
         }
@@ -335,12 +349,32 @@ function App() {
   const [result, setResult] = useState(() => simulate(42, 40)) // 模擬結果
   const [tick, setTick] = useState(0)      // 當前播放的時間點
   const [playing, setPlaying] = useState(false) // 是否正在播放
+  const [speed, setSpeed] = useState(1) // 播放速度倍率
   
   const stats = useMemo(() => result.stats, [result]) // 統計數據
   const snapshot = result.snapshots[Math.min(tick, result.snapshots.length - 1)] // 當前快照
   const prevSnapshot =
     tick > 0 ? result.snapshots[Math.min(tick - 1, result.snapshots.length - 1)] : undefined // 前一秒快照
   
+  // 每層等候乘客 Map（避免 O(n) 查詢）
+  const waitingMap = useMemo(() => {
+    const map = new Map<number, PassengerDisplay[]>()
+    if (snapshot?.waiting) {
+      for (const w of snapshot.waiting) {
+        map.set(w.floor, w.passengers)
+      }
+    }
+    return map
+  }, [snapshot])
+
+  // 已完成運送人數（從快照推算）
+  const completedCount = useMemo(() => {
+    if (!snapshot) return 0
+    const totalWaiting = snapshot.waiting.reduce((s, w) => s + w.passengers.length, 0)
+    const totalInElevator = snapshot.elevators.reduce((s, e) => s + e.passengerCount, 0)
+    return Math.max(0, Math.min(snapshot.time, spawnCount) - totalWaiting - totalInElevator)
+  }, [snapshot, spawnCount])
+
   // 樓層列表（從高到低）
   const floorsDescending = useMemo(
     () => Array.from({ length: CONFIG.floors }, (_, index) => CONFIG.floors - index),
@@ -414,19 +448,43 @@ function App() {
     setTick((value) => Math.max(value - 1, 0))
   }
 
-  // 自動播放效果（每 600ms 跳一秒）
+  // 自動播放效果（依據速度調整間隔）
   useEffect(() => {
     if (!playing) return undefined
     const handle = window.setInterval(() => {
       setTick((value) => {
         if (value >= result.snapshots.length - 1) {
+          setPlaying(false)
           return value
         }
         return value + 1
       })
-    }, 600)
+    }, 600 / speed)
     return () => window.clearInterval(handle)
-  }, [playing, result.snapshots.length])
+  }, [playing, result.snapshots.length, speed])
+
+  // 鍵盤快捷鍵（Space 播放/暫停、← → 逐幀）
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement) return
+      switch (e.code) {
+        case 'Space':
+          e.preventDefault()
+          setPlaying((v) => !v)
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          setTick((v) => Math.min(v + 1, result.snapshots.length - 1))
+          break
+        case 'ArrowLeft':
+          e.preventDefault()
+          setTick((v) => Math.max(v - 1, 0))
+          break
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [result.snapshots.length])
 
   return (
     <div className="app">
@@ -480,9 +538,21 @@ function App() {
             <h2>電梯視覺化</h2>
             <div className="playback">
               <span>t = {snapshot?.time ?? 0}s</span>
+              <span className="progress-badge">{completedCount}/{spawnCount} 完成</span>
               <button onClick={stepBackward} aria-label="step back">◀</button>
-              <button onClick={togglePlay}>{playing ? '暫停' : '播放'}</button>
+              <button onClick={togglePlay}>{playing ? '⏸ 暫停' : '▶ 播放'}</button>
               <button onClick={stepForward} aria-label="step forward">▶</button>
+              <div className="speed-control">
+                {[1, 2, 4].map((s) => (
+                  <button
+                    key={s}
+                    className={`speed-btn ${speed === s ? 'active' : ''}`}
+                    onClick={() => setSpeed(s)}
+                  >
+                    {s}x
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           <input
@@ -503,7 +573,7 @@ function App() {
             </div>
             <div className="floors-container">
               {floorsDescending.map((floor) => {
-                const waiting = snapshot?.waiting.find((entry) => entry.floor === floor)
+                const waitingPassengers = waitingMap.get(floor)
                 return (
                   <div key={floor} className="floor-row">
                     <div className="floor-info">
@@ -513,7 +583,7 @@ function App() {
                       <div key={`s-${floor}-${index}`} className="shaft" />
                     ))}
                     <div className="waiting-area">
-                      {renderPeople(waiting?.passengers ?? [], 'waiting')}
+                      {renderPeople(waitingPassengers ?? [], 'waiting')}
                     </div>
                   </div>
                 )
