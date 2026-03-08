@@ -1,75 +1,72 @@
-# React + TypeScript + Vite
+# 電梯管理系統模擬 Elevator Control Lab
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+以視覺化動畫呈現多部電梯的排程與運行過程，可自由調整樓層數、電梯數量與容量，觀察不同參數對等待時間的影響。
 
-Currently, two official plugins are available:
+## 功能
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **可調參數** — 樓層數（3–30）、電梯數（1–6）、電梯容量（2–20）、隨機乘客數（10–200），修改後即時重新模擬
+- **排程策略** — 最近等待 + 同向優先：電梯優先前往最近的同方向乘客，減少空跑與折返
+- **逐秒動畫** — 完整模擬結果以快照方式儲存，支援播放 / 暫停 / 逐幀前進後退 / 速度調整
+- **鍵盤快捷鍵** — `Space` 播放/暫停、`←` `→` 逐幀切換
+- **統計面板** — 顯示總耗時、平均等待、平均乘坐、最長等待等數據
+- **模擬日誌** — 逐秒文字紀錄，方便追蹤排程細節
 
-## React Compiler
+## 快速開始
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+### 環境需求
 
-Note: This will impact Vite dev & build performances.
+- [Node.js](https://nodejs.org/) 18+
+- npm 或其他套件管理工具
 
-## Expanding the ESLint configuration
+### 安裝與啟動
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+```bash
+# 安裝依賴
+npm install
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+# 啟動開發伺服器
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+瀏覽器開啟終端機顯示的網址（預設 http://localhost:5173）即可使用。
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### 建置正式版
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run build
+npm run preview   # 本機預覽建置結果
 ```
+
+## 操作說明
+
+1. 在左側控制區調整 **樓層數**、**電梯數**、**電梯容量**、**隨機人數**
+2. 點擊「**重新模擬**」產生新的隨機情境
+3. 使用播放列控制動畫播放，或用鍵盤快捷鍵操作
+4. 觀察右上角統計卡片與底部日誌，了解排程效率
+
+## 專案結構
+
+```
+src/
+├── App.tsx                  # 主元件：狀態管理與版面配置
+├── App.css                  # 全域樣式
+├── types.ts                 # TypeScript 型別定義
+├── config.ts                # 預設參數與版面常數
+├── simulation.ts            # 核心模擬邏輯（純函式）
+└── components/
+    ├── Building.tsx          # 大樓視覺化（電梯井 + 車廂動畫）
+    ├── PlaybackControls.tsx  # 播放控制列
+    ├── SimLog.tsx            # 模擬日誌
+    └── StatsCard.tsx         # 統計數據卡片
+```
+
+## 技術棧
+
+- **React 19** + **TypeScript 5.9**
+- **Vite 8** — 開發伺服器與打包
+- 純 CSS 動畫，無額外 UI 框架
+- 確定性偽隨機（seed-based RNG），同 seed 可重現結果
+
+## License
+
+MIT
